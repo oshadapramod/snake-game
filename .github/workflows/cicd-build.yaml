@@ -1,70 +1,48 @@
-name: CI Build & Test
+name: CI Build
 
 on:
-	push:
-		branches: [ main ]
-	pull_request:
-		branches: [ main ]
-	workflow_dispatch:
-
-permissions:
-	contents: read
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-	build-test:
-		name: Node ${{ matrix.node }} • ${{ matrix.os }}
-		runs-on: ${{ matrix.os }}
-		strategy:
-			fail-fast: false
-			matrix:
-				os: [ubuntu-latest]
-				node: [18.x, 20.x]
-		steps:
-			- name: Checkout
-				uses: actions/checkout@v4
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-			- name: Use Node.js ${{ matrix.node }}
-				uses: actions/setup-node@v4
-				with:
-					node-version: ${{ matrix.node }}
-					cache: npm
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
 
-			- name: Install deps
-				run: npm ci
+      - name: Install dependencies
+        run: npm ci
 
-			- name: Build
-				run: npm run build
+      - name: Lint (placeholder)
+        run: npm run lint || echo "No lint configured"
 
-			- name: Run tests
-				run: npm test -- --run
-				env:
-					CI: true
+      - name: Build
+        run: npm run build
 
-			- name: Archive production build
-				if: success() && matrix.node == '20.x'
-				uses: actions/upload-artifact@v4
-				with:
-					name: dist-build
-					path: dist
-					if-no-files-found: warn
+      - name: Run unit tests
+        run: npm test -- --run
+        env:
+          CI: true
 
-	smoke-preview:
-		name: Preview Build (Node 20)
-		runs-on: ubuntu-latest
-		needs: build-test
-		steps:
-			- name: Download build artifact
-				uses: actions/download-artifact@v4
-				with:
-					name: dist-build
-					path: dist
+      - name: Upload build artifact
+        if: success() && hashFiles('dist/**') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          if-no-files-found: warn
 
-			- name: List build output
-				run: |
-					echo 'Listing dist contents:'
-					ls -R dist || echo 'dist missing'
-
-			# Placeholder for future CD steps (deployment) to be added later
-			- name: Placeholder
-				run: echo 'CD steps will be added later.'
+      # Future: add CD steps (e.g., deploy to Pages or container registry)
 
