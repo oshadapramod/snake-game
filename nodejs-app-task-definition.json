@@ -1,0 +1,31 @@
+{
+  "family": "nodejs-app-taskdef",
+  "networkMode": "awsvpc",
+  "executionRoleArn": "REPLACE_WITH_EXECUTION_ROLE_ARN",
+  "taskRoleArn": "REPLACE_WITH_TASK_ROLE_ARN",
+  "cpu": "256",
+  "memory": "512",
+  "requiresCompatibilities": ["FARGATE"],
+  "runtimePlatform": {"cpuArchitecture": "X86_64", "operatingSystemFamily": "LINUX"},
+  "containerDefinitions": [
+    {
+      "name": "nodejs-app",
+      "image": "000000000000.dkr.ecr.eu-north-1.amazonaws.com/nodejs-app:latest",
+      "essential": true,
+      "portMappings": [
+        { "containerPort": 80, "protocol": "tcp" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/nodejs-app",
+          "awslogs-region": "eu-north-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" }
+      ]
+    }
+  ]
+}
