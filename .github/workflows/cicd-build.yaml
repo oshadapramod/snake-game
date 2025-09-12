@@ -1,10 +1,9 @@
-name: CICD
+name: CI Build
 
 on:
   push:
     branches:
       - main
-      - deploy-to-ecs-fargate
   pull_request:
     branches:
       - main
@@ -45,60 +44,5 @@ jobs:
           path: dist
           if-no-files-found: warn
 
-  deploy-ecs:
-    if: github.ref == 'refs/heads/deploy-to-ecs-fargate'
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      AWS_REGION: eu-north-1
-      ECR_REPOSITORY: nodejs-app
-      ECS_CLUSTER: DevCluster
-      ECS_SERVICE: nodejs-app-service
-      CONTAINER_NAME: nodejs-app
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v3
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build, tag, and push image
-        id: build-image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
-
-      - name: Render ECS task definition
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: nodejs-app-task-definition.json
-          container-name: ${{ env.CONTAINER_NAME }}
-          image: ${{ steps.build-image.outputs.image }}
-
-      - name: Deploy ECS task definition
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-        with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
-
-      - name: Post deployment info
-        run: echo "Deployed image ${{ steps.build-image.outputs.image }} to service ${{ env.ECS_SERVICE }}"
+      # Future: add CD steps (E.g., deploy to Pages or container registry)
 
