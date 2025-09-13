@@ -385,28 +385,78 @@ const SnakeGame = () => {
                     const seg = snake[i];
                     const x = logicalToPhysical(seg.x); const y = logicalToPhysical(seg.y);
                     const base = '#6aff3d';
-                    const shade = i === 0 ? '#b8ff9a' : base;
+                    const isHead = i === 0;
+                    const shade = isHead ? '#d1ffc2' : '#91ff6d';
                     ctx.fillStyle = shade;
                     ctx.shadowColor = base;
-                    ctx.shadowBlur = 12;
-                    ctx.fillRect(x + 2, y + 2, cs - 4, cs - 4);
+                    ctx.shadowBlur = isHead ? 18 : 10;
+                    const pad = isHead ? 1 : 2; // head slightly larger
+                    const size = cs - pad * 2;
+                    ctx.fillRect(x + pad, y + pad, size, size);
+
+                    if (isHead) {
+                        // Mouth: small dark wedge pointing in movement direction
+                        const d = dirRef.current;
+                        ctx.save();
+                        ctx.translate(x + cs / 2, y + cs / 2);
+                        const ang = Math.atan2(d.y, d.x);
+                        ctx.rotate(ang);
+                        const mW = cs * 0.38; // mouth width
+                        const mD = cs * 0.30; // depth
+                        ctx.beginPath();
+                        ctx.moveTo(cs * 0.10, -mW * 0.4);
+                        ctx.lineTo(cs * 0.10 + mD, 0);
+                        ctx.lineTo(cs * 0.10, mW * 0.4);
+                        ctx.closePath();
+                        ctx.fillStyle = '#103d12';
+                        ctx.globalAlpha = 0.85;
+                        ctx.fill();
+                        ctx.globalAlpha = 1;
+                        ctx.restore();
+                    }
                 }
                 ctx.restore();
             } else {
                 for (let i = 0; i < snake.length; i++) {
                     const seg = snake[i];
+                    const isHead = i === 0;
                     const x = logicalToPhysical(seg.x); const y = logicalToPhysical(seg.y);
                     const cx = x + cs / 2; const cy = y + cs / 2;
                     const prog = i / (snake.length - 1 || 1);
                     const col = lerpColor(skin.colors[0], skin.colors[1], prog);
-                    const grad = ctx.createRadialGradient(cx, cy, cs * 0.1, cx, cy, cs * 0.6);
-                    grad.addColorStop(0, '#fff');
-                    grad.addColorStop(0.15, col);
+                    const radius = isHead ? cs * 0.60 : cs * 0.48; // head larger
+                    const grad = ctx.createRadialGradient(cx, cy, radius * 0.1, cx, cy, radius * 1.15);
+                    grad.addColorStop(0, '#ffffff');
+                    grad.addColorStop(0.18, col);
                     grad.addColorStop(1, 'rgba(0,0,0,0)');
                     ctx.fillStyle = grad;
                     ctx.beginPath();
-                    ctx.arc(cx, cy, cs * 0.48, 0, Math.PI * 2);
+                    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
                     ctx.fill();
+
+                    if (isHead) {
+                        // Mouth plane (triangle) pointing forward
+                        const d = dirRef.current;
+                        const ang = Math.atan2(d.y, d.x);
+                        ctx.save();
+                        ctx.translate(cx, cy);
+                        ctx.rotate(ang);
+                        const mouthW = radius * 0.95;
+                        const mouthDepth = radius * 0.70;
+                        ctx.beginPath();
+                        ctx.moveTo(radius * 0.05, -mouthW * 0.28);
+                        ctx.lineTo(radius * 0.05 + mouthDepth, 0);
+                        ctx.lineTo(radius * 0.05, mouthW * 0.28);
+                        ctx.closePath();
+                        const mouthGrad = ctx.createLinearGradient(0, 0, mouthDepth, 0);
+                        mouthGrad.addColorStop(0, 'rgba(0,0,0,0.55)');
+                        mouthGrad.addColorStop(1, 'rgba(0,0,0,0.05)');
+                        ctx.fillStyle = mouthGrad;
+                        ctx.globalCompositeOperation = 'multiply';
+                        ctx.fill();
+                        ctx.globalCompositeOperation = 'source-over';
+                        ctx.restore();
+                    }
                 }
                 // outline glow pass
                 ctx.save();
@@ -417,7 +467,8 @@ const SnakeGame = () => {
                     const cx = x + cs / 2; const cy = y + cs / 2;
                     const prog = i / (snake.length - 1 || 1);
                     const col = lerpColor(skin.colors[0], skin.colors[1], prog);
-                    ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, cs * 0.42, 0, Math.PI * 2); ctx.stroke();
+                    const radius = i === 0 ? cs * 0.60 : cs * 0.48;
+                    ctx.strokeStyle = col; ctx.lineWidth = i === 0 ? 3 : 2; ctx.beginPath(); ctx.arc(cx, cy, radius * 0.88, 0, Math.PI * 2); ctx.stroke();
                 }
                 ctx.restore();
             }
