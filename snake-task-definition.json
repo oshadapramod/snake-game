@@ -24,10 +24,7 @@
             "name": "snake-game",
             "portMappings": [
                 {
-                    "appProtocol": "http",
-                    "containerPort": 5000,
-                    "hostPort": 5000,
-                    "name": "snake-game-5000-tcp",
+                    "containerPort": 80,
                     "protocol": "tcp"
                 }
             ],

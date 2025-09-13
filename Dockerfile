@@ -28,7 +28,7 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # Minimal healthcheck (optional)
 HEALTHCHECK --interval=30s --timeout=3s CMD wget -q -O - http://localhost:80/ >/dev/null 2>&1 || exit 1
 
-EXPOSE 5000
+EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
 
 ############################################################
