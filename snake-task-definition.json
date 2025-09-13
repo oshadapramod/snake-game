@@ -9,7 +9,7 @@
             "environment": [],
             "environmentFiles": [],
             "essential": true,
-            "image": "186375393797.dkr.ecr.us-east-1.amazonaws.com/snake-game:latest",
+            "image": "snake-game",
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
