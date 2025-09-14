@@ -16,11 +16,12 @@ const DIFFICULTIES = [
 const BASE_SPEED_PER_LEVEL = 2.2; // multiplier to derive cells/sec
 const INITIAL_LEVEL = DIFFICULTIES[0].level;
 
-// Scoring constants (inspired by Snake Xenzia approach)
-const NORMAL_POINTS = 5; // base for regular food
-const SPECIAL_MAX_POINTS = 100; // maximum when eaten instantly
-const SPECIAL_MIN_POINTS = 20; // minimum if timer almost expires
-const SPECIAL_DURATION = 6; // seconds for special food countdown
+// Scoring constants
+// Regular food always awards 15 points (flat, no level multiplier per user spec)
+const NORMAL_POINTS = 15;
+// Special (bonus) food lasts 5 seconds and always awards 30 points when eaten
+const SPECIAL_DURATION = 5; // seconds
+const SPECIAL_POINTS = 30; // flat award
 const SPECIAL_CHANCE = 0.18; // chance on spawn to be special
 
 const SNAKE_INITIAL = [{ x: 8, y: 16 }, { x: 7, y: 16 }, { x: 6, y: 16 }];
@@ -36,6 +37,112 @@ const SKINS = [
     { name: 'Cyber Lime', colors: ['#3dff92', '#14f1ff'], particle: '#7dffc2' },
 ];
 
+// --- Audio helpers ---
+let sharedAudioCtx = null;
+function getAudioCtx() {
+    if (typeof window === 'undefined') return null;
+    if (!sharedAudioCtx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) sharedAudioCtx = new AC();
+    }
+    return sharedAudioCtx;
+}
+
+function playEatSound(isSpecial = false) {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    // resume if suspended (autoplay policy)
+    if (ctx.state === 'suspended') ctx.resume();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const now = ctx.currentTime;
+    // Different timbre for special
+    const baseFreq = isSpecial ? 520 : 340;
+    osc.type = isSpecial ? 'triangle' : 'sine';
+    osc.frequency.setValueAtTime(baseFreq, now);
+    osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.9, now + 0.15);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.25, now + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0005, now + 0.22);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.25);
+}
+
+function playGameOverSound() {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+    // Two detuned oscillators falling
+    for (let i = 0; i < 2; i++) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        const startFreq = 300 - i * 40;
+        osc.frequency.setValueAtTime(startFreq, now);
+        osc.frequency.exponentialRampToValueAtTime(80 - i * 20, now + 0.6);
+        gain.gain.setValueAtTime(0.18, now);
+        gain.gain.exponentialRampToValueAtTime(0.0005, now + 0.62);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.65);
+    }
+}
+
+function playStartSound() {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(260, now);
+    osc.frequency.exponentialRampToValueAtTime(520, now + 0.25);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.3, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.36);
+}
+
+function playPauseResumeSound(pausing) {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    if (pausing) {
+        osc.frequency.setValueAtTime(420, now);
+        osc.frequency.exponentialRampToValueAtTime(250, now + 0.25);
+    } else {
+        osc.frequency.setValueAtTime(250, now);
+        osc.frequency.exponentialRampToValueAtTime(500, now + 0.25);
+    }
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0006, now + 0.30);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.32);
+}
+
+function playQuitSound() {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(180, now);
+    osc.frequency.linearRampToValueAtTime(90, now + 0.35);
+    gain.gain.setValueAtTime(0.18, now);
+    gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.36);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.38);
+}
+
 function randomInt(max) { return Math.floor(Math.random() * max); }
 
 function placeFood(snake) {
@@ -48,7 +155,17 @@ function placeFood(snake) {
 
 function maybeSpawnSpecial(regularFood, snake) {
     if (Math.random() < SPECIAL_CHANCE) {
-        // ensure special not overlapping
+        // pick a different tile than regular food and snake
+        let tries = 0;
+        while (tries < 200) {
+            const fx = randomInt(GRID_COLS);
+            const fy = randomInt(GRID_ROWS);
+            if ((fx !== regularFood.x || fy !== regularFood.y) && !snake.some(seg => seg.x === fx && seg.y === fy)) {
+                return { x: fx, y: fy, spawnTime: performance.now() / 1000 };
+            }
+            tries++;
+        }
+        // fallback: allow overlap with regular if no space found
         return { x: regularFood.x, y: regularFood.y, spawnTime: performance.now() / 1000 };
     }
     return null;
@@ -155,6 +272,11 @@ const SnakeGame = () => {
         return () => { el.removeEventListener('touchstart', onTouchStart); el.removeEventListener('touchmove', onTouchMove); el.removeEventListener('touchend', onTouchEnd); };
     }, [handleDirection]);
 
+    // Helper: award special food points exactly once
+    const awardSpecial = useCallback(() => {
+        setScore(s => s + SPECIAL_POINTS);
+    }, []);
+
     const restart = useCallback(() => {
         setSnake(SNAKE_INITIAL);
         dirRef.current = { x: 1, y: 0 }; setDir({ x: 1, y: 0 });
@@ -171,6 +293,7 @@ const SnakeGame = () => {
         restart();
         setGameStarted(true);
         setPaused(false);
+        playStartSound();
     }, [restart]);
 
     const quitGame = useCallback(() => {
@@ -178,6 +301,7 @@ const SnakeGame = () => {
         restart();
         setGameStarted(false);
         setPaused(false);
+        playQuitSound();
     }, [restart]);
 
     // Game update state
@@ -199,29 +323,31 @@ const SnakeGame = () => {
                 // self-collision still ends game
                 if (prev.some(s => s.x === nextHead.x && s.y === nextHead.y)) {
                     setGameOver(true);
+                    playGameOverSound();
                     return prev;
                 }
                 const newSnake = [nextHead, ...prev];
                 let ate = false;
-                if (nextHead.x === food.x && nextHead.y === food.y) {
+                if (specialFood && nextHead.x === specialFood.x && nextHead.y === specialFood.y) {
                     ate = true;
-                    // determine normal points (level multiplier)
-                    setScore(s => s + NORMAL_POINTS * level);
+                    awardSpecial();
+                    playEatSound(true);
+                    // Debug: uncomment to verify in console
+                    // console.log('Special food eaten: +', SPECIAL_POINTS);
+                    setSpecialFood(null);
+                    setSpecialRemaining(0);
+                    setPendingGrowth(g => g + 2);
+                } else if (nextHead.x === food.x && nextHead.y === food.y) {
+                    ate = true;
+                    // award flat points for regular food
+                    setScore(s => s + NORMAL_POINTS);
+                    playEatSound(false);
                     const nf = placeFood(newSnake);
                     setFood(nf);
                     const special = maybeSpawnSpecial(nf, newSnake);
                     setSpecialFood(special);
                     if (special) setSpecialRemaining(SPECIAL_DURATION);
                     setPendingGrowth(g => g + 1);
-                } else if (specialFood && nextHead.x === specialFood.x && nextHead.y === specialFood.y) {
-                    ate = true;
-                    const elapsed = (performance.now() / 1000) - specialFood.spawnTime;
-                    const ratio = Math.min(1, Math.max(0, elapsed / SPECIAL_DURATION));
-                    const pts = Math.round(SPECIAL_MAX_POINTS - (SPECIAL_MAX_POINTS - SPECIAL_MIN_POINTS) * ratio) * level;
-                    setScore(s => s + pts);
-                    setSpecialFood(null);
-                    setSpecialRemaining(0);
-                    setPendingGrowth(g => g + 2);
                 }
                 if (ate) {
                     for (let i = 0; i < 18; i++) {
@@ -386,34 +512,65 @@ const SnakeGame = () => {
                     const x = logicalToPhysical(seg.x); const y = logicalToPhysical(seg.y);
                     const base = '#6aff3d';
                     const isHead = i === 0;
-                    const shade = isHead ? '#d1ffc2' : '#91ff6d';
-                    ctx.fillStyle = shade;
-                    ctx.shadowColor = base;
-                    ctx.shadowBlur = isHead ? 18 : 10;
-                    const pad = isHead ? 1 : 2; // head slightly larger
-                    const size = cs - pad * 2;
-                    ctx.fillRect(x + pad, y + pad, size, size);
-
-                    if (isHead) {
-                        // Mouth: small dark wedge pointing in movement direction
-                        const d = dirRef.current;
-                        ctx.save();
-                        ctx.translate(x + cs / 2, y + cs / 2);
-                        const ang = Math.atan2(d.y, d.x);
-                        ctx.rotate(ang);
-                        const mW = cs * 0.38; // mouth width
-                        const mD = cs * 0.30; // depth
-                        ctx.beginPath();
-                        ctx.moveTo(cs * 0.10, -mW * 0.4);
-                        ctx.lineTo(cs * 0.10 + mD, 0);
-                        ctx.lineTo(cs * 0.10, mW * 0.4);
-                        ctx.closePath();
-                        ctx.fillStyle = '#103d12';
-                        ctx.globalAlpha = 0.85;
-                        ctx.fill();
-                        ctx.globalAlpha = 1;
-                        ctx.restore();
+                    if (!isHead) {
+                        const pad = 2;
+                        const size = cs - pad * 2;
+                        ctx.fillStyle = '#91ff6d';
+                        ctx.shadowColor = base;
+                        ctx.shadowBlur = 10;
+                        ctx.fillRect(x + pad, y + pad, size, size);
+                        continue;
                     }
+                    // Cobra-like pointed head (triangle + slight flare at base) with outline and eyes
+                    const d = dirRef.current;
+                    ctx.save();
+                    ctx.translate(x + cs / 2, y + cs / 2);
+                    const ang = Math.atan2(d.y, d.x);
+                    ctx.rotate(ang);
+                    const headLen = cs * 0.95;
+                    const headWidth = cs * 0.78; // base width
+                    const tipInset = headLen * 0.52;
+                    // shape: a pointed diamond-ish front with slight hood base
+                    ctx.beginPath();
+                    ctx.moveTo(-headLen * 0.40, -headWidth * 0.42); // back left
+                    ctx.lineTo(tipInset, -headWidth * 0.18);          // upper mid near tip
+                    ctx.lineTo(headLen * 0.50, 0);                    // sharp tip
+                    ctx.lineTo(tipInset, headWidth * 0.18);           // lower mid near tip
+                    ctx.lineTo(-headLen * 0.40, headWidth * 0.42);    // back right
+                    ctx.closePath();
+                    const gradHead = ctx.createLinearGradient(-headLen * 0.4, 0, headLen * 0.5, 0);
+                    gradHead.addColorStop(0, '#88ff66');
+                    gradHead.addColorStop(0.55, '#caffb0');
+                    gradHead.addColorStop(1, '#e6ffe0');
+                    ctx.fillStyle = gradHead;
+                    ctx.shadowColor = base;
+                    ctx.shadowBlur = 20;
+                    ctx.fill();
+                    // outline
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = '#2c6f24';
+                    ctx.stroke();
+                    // inner darker center
+                    ctx.shadowBlur = 0;
+                    ctx.beginPath();
+                    ctx.moveTo(-headLen * 0.30, -headWidth * 0.28);
+                    ctx.lineTo(tipInset * 0.92, -headWidth * 0.12);
+                    ctx.lineTo(headLen * 0.46, 0);
+                    ctx.lineTo(tipInset * 0.92, headWidth * 0.12);
+                    ctx.lineTo(-headLen * 0.30, headWidth * 0.28);
+                    ctx.closePath();
+                    ctx.fillStyle = 'rgba(10,60,18,0.45)';
+                    ctx.fill();
+                    // simple eyes
+                    const eyeOffsetX = headLen * 0.05;
+                    const eyeOffsetY = headWidth * 0.22;
+                    ctx.fillStyle = '#0b2109';
+                    ctx.beginPath(); ctx.arc(eyeOffsetX, -eyeOffsetY, cs * 0.07, 0, Math.PI * 2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(eyeOffsetX, eyeOffsetY, cs * 0.07, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = '#d8ffd0';
+                    ctx.beginPath(); ctx.arc(eyeOffsetX + cs * 0.015, -eyeOffsetY - cs * 0.01, cs * 0.025, 0, Math.PI * 2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(eyeOffsetX + cs * 0.015, eyeOffsetY - cs * 0.01, cs * 0.025, 0, Math.PI * 2); ctx.fill();
+                    ctx.restore();
                 }
                 ctx.restore();
             } else {
@@ -424,39 +581,76 @@ const SnakeGame = () => {
                     const cx = x + cs / 2; const cy = y + cs / 2;
                     const prog = i / (snake.length - 1 || 1);
                     const col = lerpColor(skin.colors[0], skin.colors[1], prog);
-                    const radius = isHead ? cs * 0.60 : cs * 0.48; // head larger
-                    const grad = ctx.createRadialGradient(cx, cy, radius * 0.1, cx, cy, radius * 1.15);
-                    grad.addColorStop(0, '#ffffff');
-                    grad.addColorStop(0.18, col);
-                    grad.addColorStop(1, 'rgba(0,0,0,0)');
-                    ctx.fillStyle = grad;
-                    ctx.beginPath();
-                    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-                    ctx.fill();
-
-                    if (isHead) {
-                        // Mouth plane (triangle) pointing forward
-                        const d = dirRef.current;
-                        const ang = Math.atan2(d.y, d.x);
-                        ctx.save();
-                        ctx.translate(cx, cy);
-                        ctx.rotate(ang);
-                        const mouthW = radius * 0.95;
-                        const mouthDepth = radius * 0.70;
+                    if (!isHead) {
+                        const radius = cs * 0.48;
+                        const gradBody = ctx.createRadialGradient(cx, cy, radius * 0.1, cx, cy, radius * 1.15);
+                        gradBody.addColorStop(0, '#ffffff');
+                        gradBody.addColorStop(0.18, col);
+                        gradBody.addColorStop(1, 'rgba(0,0,0,0)');
+                        ctx.fillStyle = gradBody;
                         ctx.beginPath();
-                        ctx.moveTo(radius * 0.05, -mouthW * 0.28);
-                        ctx.lineTo(radius * 0.05 + mouthDepth, 0);
-                        ctx.lineTo(radius * 0.05, mouthW * 0.28);
-                        ctx.closePath();
-                        const mouthGrad = ctx.createLinearGradient(0, 0, mouthDepth, 0);
-                        mouthGrad.addColorStop(0, 'rgba(0,0,0,0.55)');
-                        mouthGrad.addColorStop(1, 'rgba(0,0,0,0.05)');
-                        ctx.fillStyle = mouthGrad;
-                        ctx.globalCompositeOperation = 'multiply';
+                        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
                         ctx.fill();
-                        ctx.globalCompositeOperation = 'source-over';
-                        ctx.restore();
+                        continue;
                     }
+                    // Cobra neon head: tapered polygon with glow, outline, and eyes
+                    const d = dirRef.current;
+                    const ang = Math.atan2(d.y, d.x);
+                    ctx.save();
+                    ctx.translate(cx, cy);
+                    ctx.rotate(ang);
+                    const headLen = cs * 1.15;
+                    const headWidth = cs * 0.95;
+                    const tip = headLen * 0.60;
+                    ctx.beginPath();
+                    ctx.moveTo(-headLen * 0.42, -headWidth * 0.40);
+                    ctx.lineTo(tip * 0.80, -headWidth * 0.18);
+                    ctx.lineTo(tip, 0);
+                    ctx.lineTo(tip * 0.80, headWidth * 0.18);
+                    ctx.lineTo(-headLen * 0.42, headWidth * 0.40);
+                    ctx.closePath();
+                    const headGrad = ctx.createLinearGradient(-headLen * 0.42, 0, tip, 0);
+                    headGrad.addColorStop(0, skin.colors[1]);
+                    headGrad.addColorStop(0.55, skin.colors[0]);
+                    headGrad.addColorStop(1, '#ffffff');
+                    ctx.fillStyle = headGrad;
+                    ctx.shadowColor = skin.colors[0];
+                    ctx.shadowBlur = 28;
+                    ctx.fill();
+                    ctx.lineWidth = 2.2;
+                    ctx.strokeStyle = col;
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                    // Inner dark accent
+                    ctx.beginPath();
+                    ctx.moveTo(-headLen * 0.30, -headWidth * 0.24);
+                    ctx.lineTo(tip * 0.70, -headWidth * 0.11);
+                    ctx.lineTo(tip * 0.95, 0);
+                    ctx.lineTo(tip * 0.70, headWidth * 0.11);
+                    ctx.lineTo(-headLen * 0.30, headWidth * 0.24);
+                    ctx.closePath();
+                    const innerGrad = ctx.createLinearGradient(-headLen * 0.30, 0, tip * 0.95, 0);
+                    innerGrad.addColorStop(0, 'rgba(0,0,0,0.55)');
+                    innerGrad.addColorStop(1, 'rgba(0,0,0,0.08)');
+                    ctx.fillStyle = innerGrad;
+                    ctx.globalCompositeOperation = 'multiply';
+                    ctx.fill();
+                    // Eyes (glowing)
+                    const eyeOffsetX = headLen * 0.02;
+                    const eyeOffsetY = headWidth * 0.24;
+                    const eyeR = cs * 0.11;
+                    const eyeGlow = ctx.createRadialGradient(eyeOffsetX, -eyeOffsetY, eyeR * 0.2, eyeOffsetX, -eyeOffsetY, eyeR);
+                    eyeGlow.addColorStop(0, '#fff');
+                    eyeGlow.addColorStop(0.3, skin.colors[0]);
+                    eyeGlow.addColorStop(1, 'rgba(0,0,0,0)');
+                    ctx.beginPath(); ctx.fillStyle = eyeGlow; ctx.arc(eyeOffsetX, -eyeOffsetY, eyeR, 0, Math.PI * 2); ctx.fill();
+                    const eyeGlow2 = ctx.createRadialGradient(eyeOffsetX, eyeOffsetY, eyeR * 0.2, eyeOffsetX, eyeOffsetY, eyeR);
+                    eyeGlow2.addColorStop(0, '#fff');
+                    eyeGlow2.addColorStop(0.3, skin.colors[0]);
+                    eyeGlow2.addColorStop(1, 'rgba(0,0,0,0)');
+                    ctx.beginPath(); ctx.fillStyle = eyeGlow2; ctx.arc(eyeOffsetX, eyeOffsetY, eyeR, 0, Math.PI * 2); ctx.fill();
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.restore();
                 }
                 // outline glow pass
                 ctx.save();
@@ -467,8 +661,14 @@ const SnakeGame = () => {
                     const cx = x + cs / 2; const cy = y + cs / 2;
                     const prog = i / (snake.length - 1 || 1);
                     const col = lerpColor(skin.colors[0], skin.colors[1], prog);
-                    const radius = i === 0 ? cs * 0.60 : cs * 0.48;
-                    ctx.strokeStyle = col; ctx.lineWidth = i === 0 ? 3 : 2; ctx.beginPath(); ctx.arc(cx, cy, radius * 0.88, 0, Math.PI * 2); ctx.stroke();
+                    if (i === 0) {
+                        // stroke an approximate outline ellipse for head base glow
+                        const radius = cs * 0.60;
+                        ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(cx, cy, radius * 0.85, radius * 0.60, 0, 0, Math.PI * 2); ctx.stroke();
+                    } else {
+                        const radius = cs * 0.48;
+                        ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, radius * 0.88, 0, Math.PI * 2); ctx.stroke();
+                    }
                 }
                 ctx.restore();
             }
@@ -550,7 +750,7 @@ const SnakeGame = () => {
             </div>
             {gameStarted && !gameOver && (
                 <div style={styles.pauseRow}>
-                    <button onClick={() => setPaused(p => !p)} style={styles.pauseInline}>{paused ? 'Resume' : 'Pause'}</button>
+                    <button onClick={() => setPaused(p => { playPauseResumeSound(!p); return !p; })} style={styles.pauseInline}>{paused ? 'Resume' : 'Pause'}</button>
                 </div>
             )}
             <div style={styles.canvasHolder}>
@@ -572,7 +772,7 @@ const SnakeGame = () => {
                         <h1 style={styles.overTitle}>GAME OVER</h1>
                         <p style={styles.overScore}>Score: {score}</p>
                         <div style={styles.pauseBtns}>
-                            <button onClick={() => { restart(); setGameStarted(true); }} style={styles.playAgain}>Play Again</button>
+                            <button onClick={() => { restart(); setGameStarted(true); playStartSound(); }} style={styles.playAgain}>Play Again</button>
                             <button onClick={quitGame} style={styles.quitBtn}>Quit</button>
                         </div>
                     </div>
