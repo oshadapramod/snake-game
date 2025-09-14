@@ -7,9 +7,8 @@
         {
             "cpu": 0,
             "environment": [],
-            "environmentFiles": [],
             "essential": true,
-            "image": "186375393797.dkr.ecr.us-east-1.amazonaws.com/snake-game:latest",
+            "image": "186375393797.dkr.ecr.us-east-1.amazonaws.com/snake-game:7a58fc86a4a7ed49b2b1fcd607eacb289e841dc7",
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
@@ -17,19 +16,18 @@
                     "awslogs-create-group": "true",
                     "awslogs-region": "us-east-1",
                     "awslogs-stream-prefix": "ecs"
-                },
-                "secretOptions": []
+                }
             },
             "mountPoints": [],
             "name": "snake-game",
             "portMappings": [
                 {
                     "containerPort": 80,
+                    "hostPort": 80,
                     "protocol": "tcp"
                 }
             ],
             "systemControls": [],
-            "ulimits": [],
             "volumesFrom": []
         }
     ],
@@ -39,7 +37,7 @@
     "memory": "3072",
     "networkMode": "awsvpc",
     "placementConstraints": [],
-    "registeredAt": "2025-09-12T21:43:22.949Z",
+    "registeredAt": "2025-09-13T11:31:56.343Z",
     "registeredBy": "arn:aws:iam::186375393797:root",
     "requiresAttributes": [
         {
@@ -73,13 +71,13 @@
     "requiresCompatibilities": [
         "FARGATE"
     ],
-    "revision": 1,
+    "revision": 4,
     "runtimePlatform": {
         "cpuArchitecture": "X86_64",
         "operatingSystemFamily": "LINUX"
     },
     "status": "ACTIVE",
-    "taskDefinitionArn": "arn:aws:ecs:us-east-1:186375393797:task-definition/snake-task-definition:1",
+    "taskDefinitionArn": "arn:aws:ecs:us-east-1:186375393797:task-definition/snake-task-definition:4",
     "taskRoleArn": "arn:aws:iam::186375393797:role/ecsTaskExecution",
     "volumes": [],
     "tags": []
